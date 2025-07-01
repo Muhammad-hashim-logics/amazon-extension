@@ -778,8 +778,9 @@ async function buildAndDownloadFilteredCsv(filteredData, exportType) {
     const filterSuffix = getFilterSuffix();
     
     const headers = [
+        'Platform',
+        'Product ID',
         'Item Link',
-        'ASIN',
         'Status',
         'My Link',
         'Competitor Link',
@@ -789,19 +790,38 @@ async function buildAndDownloadFilteredCsv(filteredData, exportType) {
     
     let csvRows = [headers.join(',')];
     
-    for (const asin of Object.keys(filteredData)) {
-        const item = filteredData[asin];
+    for (const dataKey of Object.keys(filteredData)) {
+        const item = filteredData[dataKey];
         const status = item.status || 'no';
         
-        const itemLink = item.sellerLink || `https://amazon.com/dp/${asin}`;
+        // Handle both old and new data formats
+        let platform, productId;
+        if (dataKey.includes('_')) {
+            [platform, productId] = dataKey.split('_', 2);
+        } else {
+            // Old format: assume Amazon ASIN
+            platform = 'amazon';
+            productId = dataKey;
+        }
+
+        let itemLink = item.sellerLink;
+        if (!itemLink) {
+            if (platform === 'amazon') {
+                itemLink = `https://amazon.com/dp/${productId}`;
+            } else if (platform === 'etsy') {
+                itemLink = `https://etsy.com/listing/${productId}`;
+            }
+        }
+
         const myLink = item.myLink || '';
         const sellerLink = item.sellerLink || '';
         const notes = item.notes || '';
         const imageUrl = item.csvData?.imageUrl || item.imageUrl || '';
         
         const row = [
+            `"${platform}"`,
+            `"${productId}"`,
             `"${itemLink}"`,
-            `"${asin}"`,
             `"${status}"`,
             `"${myLink}"`,
             `"${sellerLink}"`,
@@ -812,7 +832,7 @@ async function buildAndDownloadFilteredCsv(filteredData, exportType) {
         csvRows.push(row.join(','));
     }
     
-    downloadFilteredCsv(csvRows.join('\n'), `amazon_filtered_${filterSuffix}_${timestamp}.csv`);
+    downloadFilteredCsv(csvRows.join('\n'), `multi_platform_filtered_${filterSuffix}_${timestamp}.csv`);
 }
 
 function getFilterSuffix() {
@@ -1102,8 +1122,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function buildAndDownloadCsv(listedData) {
     const headers = [
+        'Platform',
+        'Product ID',
         'Item Link',
-        'ASIN',
         'Status',
         'My Link',
         'Competitor Link',
@@ -1119,21 +1140,40 @@ async function buildAndDownloadCsv(listedData) {
         return;
     }
 
-    for (const asin of itemsToExport) {
-        const item = listedData[asin];
+    for (const dataKey of itemsToExport) {
+        const item = listedData[dataKey];
         const status = item.status || 'no';
         
         if (status === 'no') continue;
 
-        const itemLink = item.sellerLink || `https://amazon.com/dp/${asin}`;
+        // Handle both old and new data formats
+        let platform, productId;
+        if (dataKey.includes('_')) {
+            [platform, productId] = dataKey.split('_', 2);
+        } else {
+            // Old format: assume Amazon ASIN
+            platform = 'amazon';
+            productId = dataKey;
+        }
+
+        let itemLink = item.sellerLink;
+        if (!itemLink) {
+            if (platform === 'amazon') {
+                itemLink = `https://amazon.com/dp/${productId}`;
+            } else if (platform === 'etsy') {
+                itemLink = `https://etsy.com/listing/${productId}`;
+            }
+        }
+
         const myLink = item.myLink || '';
         const sellerLink = item.sellerLink || '';
         const notes = item.notes || '';
         const imageUrl = item.csvData?.imageUrl || item.imageUrl || '';
         
         const row = [
+            `"${platform}"`,
+            `"${productId}"`,
             `"${itemLink}"`,
-            `"${asin}"`,
             `"${status}"`,
             `"${myLink}"`,
             `"${sellerLink}"`,
@@ -1153,7 +1193,7 @@ async function buildAndDownloadCsv(listedData) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `amazon_status_export_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute("download", `multi_platform_export_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

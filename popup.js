@@ -246,6 +246,29 @@ document.addEventListener('DOMContentLoaded', function() {
         return asinMatch[1] || asinMatch[2] || asinMatch[3];
     }
 
+    // Extract Etsy listing ID from URL
+    function extractEtsyListingIdFromURL(url) {
+        if (!url) return null;
+        const listingMatch = url.match(/\/listing\/(\d+)/i);
+        if (!listingMatch) return null;
+        return listingMatch[1];
+    }
+
+    // Extract product ID and platform from URL
+    function extractProductIdFromURL(url) {
+        if (!url) return null;
+        
+        if (url.includes('amazon.')) {
+            const asin = extractASINFromURL(url);
+            return asin ? { platform: 'amazon', productId: asin } : null;
+        } else if (url.includes('etsy.')) {
+            const listingId = extractEtsyListingIdFromURL(url);
+            return listingId ? { platform: 'etsy', productId: listingId } : null;
+        }
+        
+        return null;
+    }
+
     // Enhanced status mapping function
     function mapStatusToExtension(csvStatus) {
         if (!csvStatus) return 'plain';
@@ -314,8 +337,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const columnMap = findColumns(headers);
             console.log('Detected columns:', columnMap);
             
-            if (!columnMap.hasASINSource) {
-                alert('CSV must have either an ASIN column or a link column (MyLink/CompetitorLink) containing Amazon URLs');
+            if (!columnMap.hasProductIdSource) {
+                alert('CSV must have either a Product ID/ASIN column or a link column (MyLink/CompetitorLink) containing Amazon or Etsy URLs');
                 return;
             }
             
@@ -335,10 +358,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 try {
                     const result = processCSVRow(columns, columnMap, i + 1);
-                    if (result.asin) {
-                        newData[result.asin] = result.data;
+                    if (result.key) {
+                        newData[result.key] = result.data;
                         importCount++;
-                        console.log(`Imported: ${result.asin} with status: ${result.data.status}`);
+                        console.log(`Imported: ${result.key} with status: ${result.data.status}`);
                     } else if (result.error) {
                         errors.push(`Row ${i + 1}: ${result.error}`);
                     }
@@ -373,19 +396,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function findColumns(headers) {
         const columnMap = {
+            platform: -1,
+            productId: -1,
             asin: -1,
             status: -1,
             myLink: -1,
             competitorLink: -1,
             notes: -1,
-            hasASINSource: false
+            hasProductIdSource: false
         };
 
         headers.forEach((header, index) => {
             switch(header) {
+                case 'platform':
+                    columnMap.platform = index;
+                    break;
+                case 'product id':
+                case 'productid':
+                    columnMap.productId = index;
+                    columnMap.hasProductIdSource = true;
+                    break;
                 case 'asin':
                     columnMap.asin = index;
-                    columnMap.hasASINSource = true;
+                    columnMap.hasProductIdSource = true;
                     break;
                 case 'status':
                     columnMap.status = index;
@@ -393,14 +426,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'mylink':
                 case 'my link':
                     columnMap.myLink = index;
-                    columnMap.hasASINSource = true;
+                    columnMap.hasProductIdSource = true;
                     break;
                 case 'competitorlink':
                 case 'competitor link':
                 case 'sellerlink':
                 case 'seller link':
+                case 'item link':
                     columnMap.competitorLink = index;
-                    columnMap.hasASINSource = true;
+                    columnMap.hasProductIdSource = true;
                     break;
                 case 'notes':
                     columnMap.notes = index;
@@ -434,31 +468,51 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function processCSVRow(columns, columnMap, rowNumber) {
-        let asin = null;
+        let platform = 'amazon'; // default
+        let productId = null;
         
-        // Try to get ASIN directly first
-        if (columnMap.asin >= 0 && columns[columnMap.asin]) {
-            asin = columns[columnMap.asin].trim();
-            if (asin.length !== 10) {
-                asin = null; // Invalid ASIN
-            }
+        // Try to get platform if specified
+        if (columnMap.platform >= 0 && columns[columnMap.platform]) {
+            platform = columns[columnMap.platform].trim().toLowerCase();
         }
         
-        // If no direct ASIN, try to extract from links
-        if (!asin) {
+        // Try to get product ID directly
+        if (columnMap.productId >= 0 && columns[columnMap.productId]) {
+            productId = columns[columnMap.productId].trim();
+        }
+        
+        // If no direct product ID, try ASIN column (for backward compatibility)
+        if (!productId && columnMap.asin >= 0 && columns[columnMap.asin]) {
+            productId = columns[columnMap.asin].trim();
+            platform = 'amazon'; // ASINs are always Amazon
+        }
+        
+        // If still no product ID, try to extract from links
+        if (!productId) {
             const links = [
                 columnMap.myLink >= 0 ? columns[columnMap.myLink] : null,
                 columnMap.competitorLink >= 0 ? columns[columnMap.competitorLink] : null
             ].filter(Boolean);
             
             for (const link of links) {
-                asin = extractASINFromURL(link);
-                if (asin) break;
+                const extracted = extractProductIdFromURL(link);
+                if (extracted) {
+                    platform = extracted.platform;
+                    productId = extracted.productId;
+                    break;
+                }
             }
         }
         
-        if (!asin) {
-            return { error: 'No valid ASIN found' };
+        if (!productId) {
+            return { error: 'No valid product ID found' };
+        }
+        
+        // Validate product ID format based on platform
+        if (platform === 'amazon' && productId.length !== 10) {
+            return { error: 'Invalid Amazon ASIN format' };
+        } else if (platform === 'etsy' && !/^\d+$/.test(productId)) {
+            return { error: 'Invalid Etsy listing ID format' };
         }
         
         const status = columnMap.status >= 0 ? columns[columnMap.status] : '';
@@ -466,9 +520,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const competitorLink = columnMap.competitorLink >= 0 ? columns[columnMap.competitorLink] : '';
         const notes = columnMap.notes >= 0 ? columns[columnMap.notes] : '';
         
+        const dataKey = `${platform}_${productId}`;
+        
         return {
-            asin: asin,
+            key: dataKey,
             data: {
+                platform: platform,
+                productId: productId,
                 status: mapStatusToExtension(status),
                 myLink: myLink || '',
                 sellerLink: competitorLink || '',
