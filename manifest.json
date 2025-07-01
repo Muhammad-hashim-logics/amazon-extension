@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Amazon Listing Checker",
-  "version": "1.4",
-  "description": "Check and manage your listed Amazon products with price comparison.",
+  "name": "Amazon & Etsy Listing Checker",
+  "version": "1.5",
+  "description": "Check and manage your listed Amazon and Etsy products with price comparison.",
   "permissions": [
     "storage"
   ],
@@ -23,7 +23,9 @@
     "https://www.amazon.ae/*",
     "https://www.amazon.sa/*",
     "https://www.amazon.com.tr/*",
-    "https://www.amazon.co.jp/*"
+    "https://www.amazon.co.jp/*",
+    "https://www.etsy.com/*",
+    "https://etsy.com/*"
   ],
   "content_scripts": [
     {
@@ -44,7 +46,9 @@
         "https://www.amazon.ae/*",
         "https://www.amazon.sa/*",
         "https://www.amazon.com.tr/*",
-        "https://www.amazon.co.jp/*"
+        "https://www.amazon.co.jp/*",
+        "https://www.etsy.com/*",
+        "https://etsy.com/*"
       ],
       "js": ["content.js"]
     }

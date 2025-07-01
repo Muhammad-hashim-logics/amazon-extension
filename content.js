@@ -1,18 +1,62 @@
 // FINAL PRODUCTION VERSION - Complete content script with filtered export system
 
+// --- Platform Detection ---
+function getCurrentPlatform() {
+    const hostname = window.location.hostname.toLowerCase();
+    if (hostname.includes('amazon')) {
+        return 'amazon';
+    } else if (hostname.includes('etsy')) {
+        return 'etsy';
+    }
+    return null;
+}
+
+function isAmazonSite() {
+    return getCurrentPlatform() === 'amazon';
+}
+
+function isEtsySite() {
+    return getCurrentPlatform() === 'etsy';
+}
+
+// --- Product ID Extraction ---
 function extractASIN(url) {
     const asinMatch = url.match(/\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})|\/product\/([A-Z0-9]{10})/i);
     if (!asinMatch) return null;
     return asinMatch[1] || asinMatch[2] || asinMatch[3];
 }
 
+function extractEtsyListingId(url) {
+    const listingMatch = url.match(/\/listing\/(\d+)/i);
+    if (!listingMatch) return null;
+    return listingMatch[1];
+}
+
+function extractProductId(url) {
+    const platform = getCurrentPlatform();
+    if (platform === 'amazon') {
+        return extractASIN(url);
+    } else if (platform === 'etsy') {
+        return extractEtsyListingId(url);
+    }
+    return null;
+}
+
 function findProductElements() {
-    const links = Array.from(document.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"], a[href*="/product/"]'));
+    const platform = getCurrentPlatform();
+    let links = [];
+    
+    if (platform === 'amazon') {
+        links = Array.from(document.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"], a[href*="/product/"]'));
+    } else if (platform === 'etsy') {
+        links = Array.from(document.querySelectorAll('a[href*="/listing/"]'));
+    }
+    
     const seen = new Set();
     return links.filter(link => {
-        const asin = extractASIN(link.href);
-        if (asin && !seen.has(asin)) {
-            seen.add(asin);
+        const productId = extractProductId(link.href);
+        if (productId && !seen.has(productId)) {
+            seen.add(productId);
             return true;
         }
         return false;
@@ -103,6 +147,113 @@ function extractImageFromDoc(doc) {
                 return imageUrl;
             }
         }
+    }
+    return '';
+}
+
+// --- Etsy-specific extraction functions ---
+function extractEtsyPriceFromDoc(doc) {
+    const selectors = [
+        '.currency-value',
+        '.shop2-review-review .currency-value',
+        '[data-test-id="price"] .currency-value',
+        '.notranslate'
+    ];
+    
+    for (let selector of selectors) {
+        const element = doc.querySelector(selector);
+        if (element && element.textContent.trim()) {
+            const text = element.textContent.trim();
+            // Check if it looks like a price (contains numbers and currency symbols)
+            if (/[\d\$£€¥₹]+/.test(text)) {
+                return text;
+            }
+        }
+    }
+    return '';
+}
+
+function extractEtsyTitleFromDoc(doc) {
+    const selectors = [
+        'h1[data-test-id="listing-page-title"]',
+        'h1.listing-page-title',
+        '.listing-page-title h1',
+        '.listing-page-title'
+    ];
+    
+    for (let selector of selectors) {
+        const element = doc.querySelector(selector);
+        if (element && element.textContent.trim()) {
+            return element.textContent.trim();
+        }
+    }
+    return '';
+}
+
+function extractEtsyShopFromDoc(doc) {
+    const selectors = [
+        '.shop2-shop-name a',
+        '.shop-name a',
+        '[data-test-id="shop-name"] a',
+        '.shop-info .shop-name'
+    ];
+    
+    for (let selector of selectors) {
+        const element = doc.querySelector(selector);
+        if (element && element.textContent.trim()) {
+            return element.textContent.trim();
+        }
+    }
+    return '';
+}
+
+function extractEtsyImageFromDoc(doc) {
+    const selectors = [
+        '.listing-page-image img',
+        '.carousel-image img',
+        '[data-test-id="listing-page-image"] img',
+        '.listing-image img'
+    ];
+    
+    for (let selector of selectors) {
+        const element = doc.querySelector(selector);
+        if (element) {
+            let imageUrl = element.src || element.getAttribute('data-src');
+            if (imageUrl && imageUrl.startsWith('http')) {
+                return imageUrl;
+            }
+        }
+    }
+    return '';
+}
+
+// --- Platform-agnostic extraction functions ---
+function extractPlatformPriceFromDoc(doc) {
+    const platform = getCurrentPlatform();
+    if (platform === 'amazon') {
+        return extractPriceFromDoc(doc);
+    } else if (platform === 'etsy') {
+        return extractEtsyPriceFromDoc(doc);
+    }
+    return '';
+}
+
+function extractPlatformTitleFromDoc(doc) {
+    const platform = getCurrentPlatform();
+    if (platform === 'amazon') {
+        return extractTitleFromDoc(doc);
+    } else if (platform === 'etsy') {
+        return extractEtsyTitleFromDoc(doc);
+    }
+    return '';
+}
+
+function extractPlatformImageFromDoc(doc) {
+    const platform = getCurrentPlatform();
+    if (platform === 'amazon') {
+        return extractImageFromDoc(doc);
+    } else if (platform === 'etsy') {
+        return extractEtsyImageFromDoc(doc);
     }
     return '';
 }
@@ -278,16 +429,16 @@ function applyFilters() {
     const productElements = findProductElements();
     
     productElements.forEach(link => {
-        const asin = extractASIN(link.href);
-        if (!asin) return;
+        const productId = extractProductId(link.href);
+        if (!productId) return;
         
         const productContainer = findProductContainer(link);
         if (!productContainer) return;
         
         const badges = {
-            listed: productContainer.querySelector(`.amazon-listing-checker-badge[data-asin="${asin}"]`),
-            price: productContainer.querySelector(`.amazon-price-badge[data-asin="${asin}"]`),
-            delivery: productContainer.querySelector(`.amazon-delivery-badge[data-asin="${asin}"]`)
+            listed: productContainer.querySelector(`.amazon-listing-checker-badge[data-product-id="${productId}"]`),
+            price: productContainer.querySelector(`.amazon-price-badge[data-product-id="${productId}"]`),
+            delivery: productContainer.querySelector(`.amazon-delivery-badge[data-product-id="${productId}"]`)
         };
         
         const shouldShow = shouldShowProduct(badges);
@@ -473,22 +624,22 @@ function exportFilteredProducts() {
 }
 
 function getVisibleFilteredProducts() {
-    const visibleASINs = [];
+    const visibleProductIds = [];
     const productElements = findProductElements();
     
     productElements.forEach(link => {
-        const asin = extractASIN(link.href);
-        if (!asin) return;
+        const productId = extractProductId(link.href);
+        if (!productId) return;
         
         const productContainer = findProductContainer(link);
         if (!productContainer) return;
         
         if (!productContainer.classList.contains('product-hidden')) {
-            visibleASINs.push(asin);
+            visibleProductIds.push(productId);
         }
     });
     
-    return visibleASINs;
+    return visibleProductIds;
 }
 
 function showFilteredExportOptions(filteredData, totalVisibleCount) {
@@ -627,8 +778,9 @@ async function buildAndDownloadFilteredCsv(filteredData, exportType) {
     const filterSuffix = getFilterSuffix();
     
     const headers = [
+        'Platform',
+        'Product ID',
         'Item Link',
-        'ASIN',
         'Status',
         'My Link',
         'Competitor Link',
@@ -638,19 +790,38 @@ async function buildAndDownloadFilteredCsv(filteredData, exportType) {
     
     let csvRows = [headers.join(',')];
     
-    for (const asin of Object.keys(filteredData)) {
-        const item = filteredData[asin];
+    for (const dataKey of Object.keys(filteredData)) {
+        const item = filteredData[dataKey];
         const status = item.status || 'no';
         
-        const itemLink = item.sellerLink || `https://amazon.com/dp/${asin}`;
+        // Handle both old and new data formats
+        let platform, productId;
+        if (dataKey.includes('_')) {
+            [platform, productId] = dataKey.split('_', 2);
+        } else {
+            // Old format: assume Amazon ASIN
+            platform = 'amazon';
+            productId = dataKey;
+        }
+
+        let itemLink = item.sellerLink;
+        if (!itemLink) {
+            if (platform === 'amazon') {
+                itemLink = `https://amazon.com/dp/${productId}`;
+            } else if (platform === 'etsy') {
+                itemLink = `https://etsy.com/listing/${productId}`;
+            }
+        }
+
         const myLink = item.myLink || '';
         const sellerLink = item.sellerLink || '';
         const notes = item.notes || '';
         const imageUrl = item.csvData?.imageUrl || item.imageUrl || '';
         
         const row = [
+            `"${platform}"`,
+            `"${productId}"`,
             `"${itemLink}"`,
-            `"${asin}"`,
             `"${status}"`,
             `"${myLink}"`,
             `"${sellerLink}"`,
@@ -661,7 +832,7 @@ async function buildAndDownloadFilteredCsv(filteredData, exportType) {
         csvRows.push(row.join(','));
     }
     
-    downloadFilteredCsv(csvRows.join('\n'), `amazon_filtered_${filterSuffix}_${timestamp}.csv`);
+    downloadFilteredCsv(csvRows.join('\n'), `multi_platform_filtered_${filterSuffix}_${timestamp}.csv`);
 }
 
 function getFilterSuffix() {
@@ -694,7 +865,9 @@ function downloadFilteredCsv(csvContent, filename) {
     alert(`Filtered export complete! Exported ${exportedCount} products.\nFile: ${filename}`);
 }
 
-function showStatusSelectionMenu(asin, el, allListedData) {
+function showStatusSelectionMenu(productId, el, allListedData, platform = null) {
+    if (!platform) platform = getCurrentPlatform();
+    
     const existingMenu = document.getElementById('status-selection-menu');
     if (existingMenu) existingMenu.remove();
     
@@ -713,9 +886,10 @@ function showStatusSelectionMenu(asin, el, allListedData) {
         min-width: 200px;
     `;
     
+    const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
     menu.innerHTML = `
         <div style="font-weight: bold; margin-bottom: 10px; color: #232f3e; border-bottom: 1px solid #eee; padding-bottom: 5px;">
-            Select Status for ${asin}
+            Select Status for ${platformName} Product: ${productId}
         </div>
         <div style="display: flex; flex-direction: column; gap: 8px;">
             <button class="status-option" data-status="listed" style="padding: 8px 12px; border: 1px solid #34a853; background: #e3fcef; color: #155724; border-radius: 4px; cursor: pointer; font-size: 12px;">✅ Listed</button>
@@ -727,7 +901,7 @@ function showStatusSelectionMenu(asin, el, allListedData) {
         <button id="cancel-status" style="width: 100%; margin-top: 10px; padding: 6px; background: #f0f2f2; border: 1px solid #d5d9d9; border-radius: 4px; cursor: pointer; font-size: 11px;">Cancel</button>
     `;
     
-    const badge = el.parentElement.querySelector(`.amazon-listing-checker-badge[data-asin="${asin}"]`);
+    const badge = el.parentElement.querySelector(`.amazon-listing-checker-badge[data-product-id="${productId}"]`);
     if (badge) {
         const rect = badge.getBoundingClientRect();
         menu.style.top = `${rect.bottom + 5}px`;
@@ -741,18 +915,21 @@ function showStatusSelectionMenu(asin, el, allListedData) {
             const selectedStatus = e.target.dataset.status;
             
             // Capture product image when status is updated
-            captureProductImage(asin).then(imageUrl => {
-                allListedData[asin] = {
+            captureProductImage(productId, platform).then(imageUrl => {
+                const dataKey = `${platform}_${productId}`;
+                allListedData[dataKey] = {
                     status: selectedStatus,
-                    myLink: allListedData[asin]?.myLink || '',
-                    sellerLink: allListedData[asin]?.sellerLink || '',
-                    csvData: allListedData[asin]?.csvData || {},
-                    notes: allListedData[asin]?.notes || '',
-                    imageUrl: imageUrl || allListedData[asin]?.imageUrl || ''
+                    platform: platform,
+                    productId: productId,
+                    myLink: allListedData[dataKey]?.myLink || '',
+                    sellerLink: allListedData[dataKey]?.sellerLink || '',
+                    csvData: allListedData[dataKey]?.csvData || {},
+                    notes: allListedData[dataKey]?.notes || '',
+                    imageUrl: imageUrl || allListedData[dataKey]?.imageUrl || ''
                 };
                 
                 chrome.storage.local.set({ listedData: allListedData }, () => {
-                    createOrUpdateBadge(el, asin, selectedStatus, allListedData);
+                    createOrUpdateBadge(el, productId, selectedStatus, allListedData, platform);
                     menu.remove();
                 });
             });
@@ -774,13 +951,15 @@ function showStatusSelectionMenu(asin, el, allListedData) {
 }
 
 // Function to capture product image from current page or product link
-async function captureProductImage(asin) {
+async function captureProductImage(productId, platform = null) {
+    if (!platform) platform = getCurrentPlatform();
+    
     try {
         // First try to get image from current page if we're on the product page
-        if (window.location.href.includes(asin)) {
-            const imageUrl = extractImageFromDoc(document);
+        if (window.location.href.includes(productId)) {
+            const imageUrl = extractPlatformImageFromDoc(document);
             if (imageUrl) {
-                console.log(`Found image on current page for ${asin}: ${imageUrl}`);
+                console.log(`Found image on current page for ${productId}: ${imageUrl}`);
                 return imageUrl;
             }
         }
@@ -788,28 +967,40 @@ async function captureProductImage(asin) {
         // Try to find image from product links on current page
         const productLinks = findProductElements();
         for (const link of productLinks) {
-            const linkAsin = extractASIN(link.href);
-            if (linkAsin === asin) {
+            const linkProductId = extractProductId(link.href);
+            if (linkProductId === productId) {
                 // Look for images near this product link
                 const container = findProductContainer(link);
                 if (container) {
-                    // Try multiple image selectors
-                    const imageSelectors = [
-                        'img[src*="amazon"]',
-                        'img[data-src*="amazon"]',
-                        '.s-image',
-                        '.a-dynamic-image',
-                        '[data-a-dynamic-image]',
-                        'img[alt*="product"]',
-                        'img'
-                    ];
+                    // Try multiple image selectors based on platform
+                    let imageSelectors = [];
+                    if (platform === 'amazon') {
+                        imageSelectors = [
+                            'img[src*="amazon"]',
+                            'img[data-src*="amazon"]',
+                            '.s-image',
+                            '.a-dynamic-image',
+                            '[data-a-dynamic-image]',
+                            'img[alt*="product"]',
+                            'img'
+                        ];
+                    } else if (platform === 'etsy') {
+                        imageSelectors = [
+                            'img[src*="etsy"]',
+                            'img[data-src*="etsy"]',
+                            '.listing-image img',
+                            '.carousel-image img',
+                            'img[alt*="listing"]',
+                            'img'
+                        ];
+                    }
                     
                     for (const selector of imageSelectors) {
                         const img = container.querySelector(selector);
                         if (img) {
                             let imageUrl = img.src || img.getAttribute('data-src') || img.getAttribute('data-a-dynamic-image');
                             
-                            // Handle dynamic image data
+                            // Handle dynamic image data (mostly for Amazon)
                             if (imageUrl && imageUrl.startsWith('{')) {
                                 try {
                                     const imageData = JSON.parse(imageUrl);
@@ -819,9 +1010,10 @@ async function captureProductImage(asin) {
                                 }
                             }
                             
-                            // Validate image URL
-                            if (imageUrl && imageUrl.startsWith('http') && imageUrl.includes('amazon')) {
-                                console.log(`Found image for ${asin}: ${imageUrl}`);
+                            // Validate image URL based on platform
+                            const platformDomain = platform === 'amazon' ? 'amazon' : 'etsy';
+                            if (imageUrl && imageUrl.startsWith('http') && imageUrl.includes(platformDomain)) {
+                                console.log(`Found image for ${productId}: ${imageUrl}`);
                                 return imageUrl;
                             }
                         }
@@ -830,7 +1022,7 @@ async function captureProductImage(asin) {
             }
         }
         
-        console.log(`No image found for ${asin}`);
+        console.log(`No image found for ${productId}`);
         return '';
     } catch (error) {
         console.error('Error capturing product image:', error);
@@ -838,10 +1030,12 @@ async function captureProductImage(asin) {
     }
 }
 
-async function createOrUpdateBadge(el, asin, status, allListedData) {
-    let existingBadge = el.parentElement.querySelector(`.amazon-listing-checker-badge[data-asin="${asin}"]`);
-    let existingPriceBadge = el.parentElement.querySelector(`.amazon-price-badge[data-asin="${asin}"]`);
-    let existingDeliveryBadge = el.parentElement.querySelector(`.amazon-delivery-badge[data-asin="${asin}"]`);
+async function createOrUpdateBadge(el, productId, status, allListedData, platform = null) {
+    if (!platform) platform = getCurrentPlatform();
+    
+    let existingBadge = el.parentElement.querySelector(`.amazon-listing-checker-badge[data-product-id="${productId}"]`);
+    let existingPriceBadge = el.parentElement.querySelector(`.amazon-price-badge[data-product-id="${productId}"]`);
+    let existingDeliveryBadge = el.parentElement.querySelector(`.amazon-delivery-badge[data-product-id="${productId}"]`);
     
     if (existingBadge) existingBadge.remove();
     if (existingPriceBadge) existingPriceBadge.remove();
@@ -849,57 +1043,61 @@ async function createOrUpdateBadge(el, asin, status, allListedData) {
 
     const badge = document.createElement("span");
     badge.className = "amazon-listing-checker-badge";
-    badge.setAttribute('data-asin', asin);
+    badge.setAttribute('data-product-id', productId);
+    badge.setAttribute('data-platform', platform);
     badge.style.cssText = `margin-left: 6px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; display: inline-block; position: relative; user-select: none;`;
+
+    // Add platform indicator to badge text
+    const platformIcon = platform === 'amazon' ? '🛒' : '🏪';
 
     switch(status) {
         case "listed":
             badge.style.background = "#e3fcef";
             badge.style.border = "1px solid #34a853";
             badge.style.color = "#155724";
-            badge.innerText = "✅ Listed";
+            badge.innerText = `${platformIcon} ✅ Listed`;
             break;
             
         case "violation":
             badge.style.background = "#f8d7da";
             badge.style.border = "1px solid #721c24";
             badge.style.color = "#721c24";
-            badge.innerText = "⚠️ Violation";
+            badge.innerText = `${platformIcon} ⚠️ Violation`;
             break;
             
         case "to_list":
             badge.style.background = "#fff3cd";
             badge.style.border = "1px solid #ffc107";
             badge.style.color = "#856404";
-            badge.innerText = "📝 To List";
+            badge.innerText = `${platformIcon} 📝 To List`;
             break;
             
         case "plain":
             badge.style.background = "#e2e3e5";
             badge.style.border = "1px solid #6c757d";
             badge.style.color = "#495057";
-            badge.innerText = "⚫ Plain";
+            badge.innerText = `${platformIcon} ⚫ Plain`;
             break;
             
         case "na":
             badge.style.background = "#f8f9fa";
             badge.style.border = "1px solid #dee2e6";
             badge.style.color = "#6c757d";
-            badge.innerText = "❌ N/A";
+            badge.innerText = `${platformIcon} ❌ N/A`;
             break;
             
         default:
             badge.style.background = "#fffbe3";
             badge.style.border = "1px solid #e3b534";
             badge.style.color = "#856404";
-            badge.innerText = "Mark as listed?";
+            badge.innerText = `${platformIcon} Mark as listed?`;
             break;
     }
     
     badge.addEventListener('click', function(e) {
         e.stopPropagation();
         e.preventDefault();
-        showStatusSelectionMenu(asin, el, allListedData);
+        showStatusSelectionMenu(productId, el, allListedData, platform);
     });
     
     if (el.parentElement) {
@@ -924,8 +1122,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function buildAndDownloadCsv(listedData) {
     const headers = [
+        'Platform',
+        'Product ID',
         'Item Link',
-        'ASIN',
         'Status',
         'My Link',
         'Competitor Link',
@@ -941,21 +1140,40 @@ async function buildAndDownloadCsv(listedData) {
         return;
     }
 
-    for (const asin of itemsToExport) {
-        const item = listedData[asin];
+    for (const dataKey of itemsToExport) {
+        const item = listedData[dataKey];
         const status = item.status || 'no';
         
         if (status === 'no') continue;
 
-        const itemLink = item.sellerLink || `https://amazon.com/dp/${asin}`;
+        // Handle both old and new data formats
+        let platform, productId;
+        if (dataKey.includes('_')) {
+            [platform, productId] = dataKey.split('_', 2);
+        } else {
+            // Old format: assume Amazon ASIN
+            platform = 'amazon';
+            productId = dataKey;
+        }
+
+        let itemLink = item.sellerLink;
+        if (!itemLink) {
+            if (platform === 'amazon') {
+                itemLink = `https://amazon.com/dp/${productId}`;
+            } else if (platform === 'etsy') {
+                itemLink = `https://etsy.com/listing/${productId}`;
+            }
+        }
+
         const myLink = item.myLink || '';
         const sellerLink = item.sellerLink || '';
         const notes = item.notes || '';
         const imageUrl = item.csvData?.imageUrl || item.imageUrl || '';
         
         const row = [
+            `"${platform}"`,
+            `"${productId}"`,
             `"${itemLink}"`,
-            `"${asin}"`,
             `"${status}"`,
             `"${myLink}"`,
             `"${sellerLink}"`,
@@ -975,7 +1193,7 @@ async function buildAndDownloadCsv(listedData) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `amazon_status_export_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute("download", `multi_platform_export_${new Date().toISOString().slice(0,10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1004,26 +1222,30 @@ function processAllProducts() {
         let dataUpdated = false;
         
         const processProduct = async (link) => {
-            const asin = extractASIN(link.href);
-            if (asin) {
-                const status = listedData[asin] ? listedData[asin].status : "no";
+            const productId = extractProductId(link.href);
+            const platform = getCurrentPlatform();
+            
+            if (productId) {
+                // Create a platform-specific key for storage
+                const dataKey = `${platform}_${productId}`;
+                const status = listedData[dataKey] ? listedData[dataKey].status : "no";
                 
                 // Capture image if product is tracked but doesn't have image
-                if (listedData[asin] && !listedData[asin].imageUrl) {
+                if (listedData[dataKey] && !listedData[dataKey].imageUrl) {
                     try {
-                        const imageUrl = await captureProductImage(asin);
+                        const imageUrl = await captureProductImage(productId, platform);
                         if (imageUrl) {
-                            listedData[asin].imageUrl = imageUrl;
+                            listedData[dataKey].imageUrl = imageUrl;
                             dataUpdated = true;
-                            console.log(`Captured image for ${asin}: ${imageUrl}`);
+                            console.log(`Captured image for ${productId}: ${imageUrl}`);
                         }
                     } catch (error) {
-                        console.error(`Error capturing image for ${asin}:`, error);
+                        console.error(`Error capturing image for ${productId}:`, error);
                     }
                 }
                 
-                if (!link.parentElement.querySelector(`.amazon-listing-checker-badge[data-asin="${asin}"]`)) {
-                    createOrUpdateBadge(link, asin, status, listedData);
+                if (!link.parentElement.querySelector(`.amazon-listing-checker-badge[data-product-id="${productId}"]`)) {
+                    createOrUpdateBadge(link, productId, status, listedData, platform);
                 }
             }
         };

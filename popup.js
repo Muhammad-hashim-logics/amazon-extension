@@ -48,14 +48,22 @@ document.addEventListener('DOMContentLoaded', function() {
     let productData = {};
     let currentTab = null;
 
-    function checkAmazonPage() {
+    function checkSupportedPage() {
         chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
             currentTab = tabs[0];
-            const isAmazonPage = tabs[0] && tabs[0].url && tabs[0].url.includes('amazon.');
-            extensionStatusEl.textContent = isAmazonPage ? 'Active' : 'Visit Amazon';
-            extensionStatusEl.style.color = isAmazonPage ? '#34a853' : '#ea4335';
-            if (exportBtn) exportBtn.disabled = !isAmazonPage;
-            if (refreshBtn) refreshBtn.disabled = !isAmazonPage;
+            const url = tabs[0]?.url;
+            const isAmazonPage = url && url.includes('amazon.');
+            const isEtsyPage = url && url.includes('etsy.');
+            const isSupportedPage = isAmazonPage || isEtsyPage;
+            
+            let statusText = 'Visit Amazon or Etsy';
+            if (isAmazonPage) statusText = 'Active on Amazon';
+            else if (isEtsyPage) statusText = 'Active on Etsy';
+            
+            extensionStatusEl.textContent = statusText;
+            extensionStatusEl.style.color = isSupportedPage ? '#34a853' : '#ea4335';
+            if (exportBtn) exportBtn.disabled = !isSupportedPage;
+            if (refreshBtn) refreshBtn.disabled = !isSupportedPage;
         });
     }
 
@@ -66,7 +74,8 @@ document.addEventListener('DOMContentLoaded', function() {
         table.innerHTML = `
             <thead>
                 <tr>
-                    <th>ASIN</th>
+                    <th>Platform</th>
+                    <th>Product ID</th>
                     <th>Status</th>
                     <th>My Link</th>
                     <th>Competitor Link</th>
@@ -81,23 +90,26 @@ document.addEventListener('DOMContentLoaded', function() {
         return table;
     }
 
-    function addProductRow(asin, data) {
+    function addProductRow(platform, productId, data, dataKey) {
         const tableBody = document.getElementById('tableBody');
         if (!tableBody) return;
 
         const row = document.createElement('tr');
-        row.setAttribute('data-asin', asin);
+        row.setAttribute('data-key', dataKey);
         
         const status = data.status || 'no';
         const statusDisplay = getStatusDisplay(status);
+        const platformIcon = platform === 'amazon' ? '🛒' : '🏪';
+        const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
         
         row.innerHTML = 
-            '<td><span class="asin-code">' + asin + '</span></td>' +
+            '<td><span style="font-size: 14px;">' + platformIcon + '</span> ' + platformName + '</td>' +
+            '<td><span class="asin-code">' + productId + '</span></td>' +
             '<td><span class="status-badge ' + statusDisplay.class + '">' + statusDisplay.text + '</span></td>' +
             '<td><a href="' + (data.myLink || '#') + '" target="_blank" style="font-size: 10px;">' + (data.myLink ? 'View' : 'N/A') + '</a></td>' +
             '<td><a href="' + (data.sellerLink || '#') + '" target="_blank" style="font-size: 10px;">' + (data.sellerLink ? 'View' : 'N/A') + '</a></td>' +
             '<td style="font-size: 10px; max-width: 100px; overflow: hidden; text-overflow: ellipsis;">' + (data.notes || '') + '</td>' +
-            '<td><button class="remove-btn" data-asin="' + asin + '">✕</button></td>';
+            '<td><button class="remove-btn" data-key="' + dataKey + '">✕</button></td>';
         
         tableBody.appendChild(row);
     }
@@ -143,21 +155,42 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             Object.entries(listedData).forEach(function(entry) {
-                const asin = entry[0];
+                const key = entry[0];
                 const data = entry[1];
                 
-                productData[asin] = data;
-                addProductRow(asin, data);
+                // Support both old (ASIN only) and new (platform_productId) data structures
+                let platform, productId;
+                if (key.includes('_')) {
+                    // New format: platform_productId
+                    [platform, productId] = key.split('_', 2);
+                } else {
+                    // Old format: assume Amazon ASIN
+                    platform = 'amazon';
+                    productId = key;
+                    // Migrate data to new format
+                    const newKey = `${platform}_${productId}`;
+                    if (!listedData[newKey]) {
+                        listedData[newKey] = { ...data, platform: platform, productId: productId };
+                        delete listedData[key];
+                    }
+                }
+                
+                productData[key] = data;
+                addProductRow(platform, productId, data, key);
             });
+            
+            // Save migrated data if needed
+            chrome.storage.local.set({ listedData: listedData });
             
             // Add click handlers for remove buttons
             document.querySelectorAll('.remove-btn').forEach(btn => {
                 btn.addEventListener('click', function(e) {
-                    const asin = e.target.dataset.asin;
-                    if (confirm(`Remove ${asin} from tracked products?`)) {
+                    const dataKey = e.target.dataset.key;
+                    const displayKey = dataKey.includes('_') ? dataKey.split('_')[1] : dataKey;
+                    if (confirm(`Remove ${displayKey} from tracked products?`)) {
                         chrome.storage.local.get(['listedData'], function(result) {
                             const listedData = result.listedData || {};
-                            delete listedData[asin];
+                            delete listedData[dataKey];
                             chrome.storage.local.set({ listedData: listedData }, function() {
                                 loadListedProducts();
                             });
@@ -210,6 +243,29 @@ document.addEventListener('DOMContentLoaded', function() {
         const asinMatch = url.match(/\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})|\/product\/([A-Z0-9]{10})/i);
         if (!asinMatch) return null;
         return asinMatch[1] || asinMatch[2] || asinMatch[3];
+    }
+
+    // Extract Etsy listing ID from URL
+    function extractEtsyListingIdFromURL(url) {
+        if (!url) return null;
+        const listingMatch = url.match(/\/listing\/(\d+)/i);
+        if (!listingMatch) return null;
+        return listingMatch[1];
+    }
+
+    // Extract product ID and platform from URL
+    function extractProductIdFromURL(url) {
+        if (!url) return null;
+        
+        if (url.includes('amazon.')) {
+            const asin = extractASINFromURL(url);
+            return asin ? { platform: 'amazon', productId: asin } : null;
+        } else if (url.includes('etsy.')) {
+            const listingId = extractEtsyListingIdFromURL(url);
+            return listingId ? { platform: 'etsy', productId: listingId } : null;
+        }
+        
+        return null;
     }
 
     // Enhanced status mapping function
@@ -280,8 +336,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const columnMap = findColumns(headers);
             console.log('Detected columns:', columnMap);
             
-            if (!columnMap.hasASINSource) {
-                alert('CSV must have either an ASIN column or a link column (MyLink/CompetitorLink) containing Amazon URLs');
+            if (!columnMap.hasProductIdSource) {
+                alert('CSV must have either a Product ID/ASIN column or a link column (MyLink/CompetitorLink) containing Amazon or Etsy URLs');
                 return;
             }
             
@@ -301,10 +357,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 try {
                     const result = processCSVRow(columns, columnMap, i + 1);
-                    if (result.asin) {
-                        newData[result.asin] = result.data;
+                    if (result.key) {
+                        newData[result.key] = result.data;
                         importCount++;
-                        console.log(`Imported: ${result.asin} with status: ${result.data.status}`);
+                        console.log(`Imported: ${result.key} with status: ${result.data.status}`);
                     } else if (result.error) {
                         errors.push(`Row ${i + 1}: ${result.error}`);
                     }
@@ -339,19 +395,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function findColumns(headers) {
         const columnMap = {
+            platform: -1,
+            productId: -1,
             asin: -1,
             status: -1,
             myLink: -1,
             competitorLink: -1,
             notes: -1,
-            hasASINSource: false
+            hasProductIdSource: false
         };
 
         headers.forEach((header, index) => {
             switch(header) {
+                case 'platform':
+                    columnMap.platform = index;
+                    break;
+                case 'product id':
+                case 'productid':
+                    columnMap.productId = index;
+                    columnMap.hasProductIdSource = true;
+                    break;
                 case 'asin':
                     columnMap.asin = index;
-                    columnMap.hasASINSource = true;
+                    columnMap.hasProductIdSource = true;
                     break;
                 case 'status':
                     columnMap.status = index;
@@ -359,14 +425,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'mylink':
                 case 'my link':
                     columnMap.myLink = index;
-                    columnMap.hasASINSource = true;
+                    columnMap.hasProductIdSource = true;
                     break;
                 case 'competitorlink':
                 case 'competitor link':
                 case 'sellerlink':
                 case 'seller link':
+                case 'item link':
                     columnMap.competitorLink = index;
-                    columnMap.hasASINSource = true;
+                    columnMap.hasProductIdSource = true;
                     break;
                 case 'notes':
                     columnMap.notes = index;
@@ -400,31 +467,51 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function processCSVRow(columns, columnMap, rowNumber) {
-        let asin = null;
+        let platform = 'amazon'; // default
+        let productId = null;
         
-        // Try to get ASIN directly first
-        if (columnMap.asin >= 0 && columns[columnMap.asin]) {
-            asin = columns[columnMap.asin].trim();
-            if (asin.length !== 10) {
-                asin = null; // Invalid ASIN
-            }
+        // Try to get platform if specified
+        if (columnMap.platform >= 0 && columns[columnMap.platform]) {
+            platform = columns[columnMap.platform].trim().toLowerCase();
         }
         
-        // If no direct ASIN, try to extract from links
-        if (!asin) {
+        // Try to get product ID directly
+        if (columnMap.productId >= 0 && columns[columnMap.productId]) {
+            productId = columns[columnMap.productId].trim();
+        }
+        
+        // If no direct product ID, try ASIN column (for backward compatibility)
+        if (!productId && columnMap.asin >= 0 && columns[columnMap.asin]) {
+            productId = columns[columnMap.asin].trim();
+            platform = 'amazon'; // ASINs are always Amazon
+        }
+        
+        // If still no product ID, try to extract from links
+        if (!productId) {
             const links = [
                 columnMap.myLink >= 0 ? columns[columnMap.myLink] : null,
                 columnMap.competitorLink >= 0 ? columns[columnMap.competitorLink] : null
             ].filter(Boolean);
             
             for (const link of links) {
-                asin = extractASINFromURL(link);
-                if (asin) break;
+                const extracted = extractProductIdFromURL(link);
+                if (extracted) {
+                    platform = extracted.platform;
+                    productId = extracted.productId;
+                    break;
+                }
             }
         }
         
-        if (!asin) {
-            return { error: 'No valid ASIN found' };
+        if (!productId) {
+            return { error: 'No valid product ID found' };
+        }
+        
+        // Validate product ID format based on platform
+        if (platform === 'amazon' && productId.length !== 10) {
+            return { error: 'Invalid Amazon ASIN format' };
+        } else if (platform === 'etsy' && !/^\d+$/.test(productId)) {
+            return { error: 'Invalid Etsy listing ID format' };
         }
         
         const status = columnMap.status >= 0 ? columns[columnMap.status] : '';
@@ -432,9 +519,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const competitorLink = columnMap.competitorLink >= 0 ? columns[columnMap.competitorLink] : '';
         const notes = columnMap.notes >= 0 ? columns[columnMap.notes] : '';
         
+        const dataKey = `${platform}_${productId}`;
+        
         return {
-            asin: asin,
+            key: dataKey,
             data: {
+                platform: platform,
+                productId: productId,
                 status: mapStatusToExtension(status),
                 myLink: myLink || '',
                 sellerLink: competitorLink || '',
@@ -478,8 +569,8 @@ document.addEventListener('DOMContentLoaded', function() {
             alert(`Successfully replaced all data with ${importCount} imported products!`);
             loadListedProducts();
             
-            // Reload Amazon tab if active
-            if (currentTab && currentTab.url && currentTab.url.includes('amazon.')) {
+            // Reload supported platform tab if active
+            if (currentTab && currentTab.url && (currentTab.url.includes('amazon.') || currentTab.url.includes('etsy.'))) {
                 chrome.tabs.reload(currentTab.id);
             }
         });
@@ -490,7 +581,7 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshBtn.addEventListener('click', function() {
             console.log('Refresh clicked');
             loadListedProducts();
-            checkAmazonPage();
+            checkSupportedPage();
         });
     }
     
@@ -499,7 +590,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Export clicked - Starting CSV export...');
             
             chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                if (tabs[0] && tabs[0].url && tabs[0].url.includes('amazon.')) {
+                if (tabs[0] && tabs[0].url && (tabs[0].url.includes('amazon.') || tabs[0].url.includes('etsy.'))) {
                     chrome.storage.local.get(['listedData'], function(result) {
                         const listedData = result.listedData || {};
                         
@@ -538,9 +629,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 chrome.storage.local.set({listedData: {}}, function() {
                     loadListedProducts();
                     
-                    // Reload Amazon tab to clear badges
+                    // Reload supported platform tab to clear badges
                     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                        if (tabs[0] && tabs[0].url && tabs[0].url.includes('amazon.')) {
+                        if (tabs[0] && tabs[0].url && (tabs[0].url.includes('amazon.') || tabs[0].url.includes('etsy.'))) {
                             chrome.tabs.reload(tabs[0].id);
                         }
                     });
@@ -566,7 +657,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Initialize
-    checkAmazonPage();
+    checkSupportedPage();
     loadListedProducts();
     
     console.log('Popup initialization complete');
