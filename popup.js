@@ -52,10 +52,17 @@ document.addEventListener('DOMContentLoaded', function() {
         chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
             currentTab = tabs[0];
             const isAmazonPage = tabs[0] && tabs[0].url && tabs[0].url.includes('amazon.');
-            extensionStatusEl.textContent = isAmazonPage ? 'Active' : 'Visit Amazon';
-            extensionStatusEl.style.color = isAmazonPage ? '#34a853' : '#ea4335';
-            if (exportBtn) exportBtn.disabled = !isAmazonPage;
-            if (refreshBtn) refreshBtn.disabled = !isAmazonPage;
+            const isEtsyPage = tabs[0] && tabs[0].url && tabs[0].url.includes('etsy.com');
+            const isSupportedPage = isAmazonPage || isEtsyPage;
+            
+            let statusText = 'Inactive';
+            if (isAmazonPage) statusText = 'Amazon Active';
+            else if (isEtsyPage) statusText = 'Etsy Active';
+            
+            extensionStatusEl.textContent = isSupportedPage ? statusText : 'Visit Amazon or Etsy';
+            extensionStatusEl.style.color = isSupportedPage ? '#34a853' : '#ea4335';
+            if (exportBtn) exportBtn.disabled = !isSupportedPage;
+            if (refreshBtn) refreshBtn.disabled = !isSupportedPage;
         });
     }
 
@@ -478,8 +485,8 @@ document.addEventListener('DOMContentLoaded', function() {
             alert(`Successfully replaced all data with ${importCount} imported products!`);
             loadListedProducts();
             
-            // Reload Amazon tab if active
-            if (currentTab && currentTab.url && currentTab.url.includes('amazon.')) {
+            // Reload current tab if it's a supported page
+            if (currentTab && currentTab.url && (currentTab.url.includes('amazon.') || currentTab.url.includes('etsy.com'))) {
                 chrome.tabs.reload(currentTab.id);
             }
         });
@@ -499,7 +506,10 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Export clicked - Starting CSV export...');
             
             chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                if (tabs[0] && tabs[0].url && tabs[0].url.includes('amazon.')) {
+                const currentUrl = tabs[0] && tabs[0].url;
+                const isSupportedPage = currentUrl && (currentUrl.includes('amazon.') || currentUrl.includes('etsy.com'));
+                
+                if (isSupportedPage) {
                     chrome.storage.local.get(['listedData'], function(result) {
                         const listedData = result.listedData || {};
                         
@@ -509,14 +519,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         }, function(response) {
                             if (chrome.runtime.lastError) {
                                 console.error('Export error:', chrome.runtime.lastError);
-                                alert('Export failed. Make sure you are on an Amazon page and the extension is loaded.');
+                                alert('Export failed. Make sure you are on a supported page and the extension is loaded.');
                             } else {
                                 console.log('Export response:', response);
                             }
                         });
                     });
                 } else {
-                    alert('Please navigate to an Amazon page to export data.');
+                    alert('Please navigate to an Amazon or Etsy page to export data.');
                 }
             });
         });
@@ -538,9 +548,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 chrome.storage.local.set({listedData: {}}, function() {
                     loadListedProducts();
                     
-                    // Reload Amazon tab to clear badges
+                    // Reload current tab to clear badges
                     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                        if (tabs[0] && tabs[0].url && tabs[0].url.includes('amazon.')) {
+                        const currentUrl = tabs[0] && tabs[0].url;
+                        if (currentUrl && (currentUrl.includes('amazon.') || currentUrl.includes('etsy.com'))) {
                             chrome.tabs.reload(tabs[0].id);
                         }
                     });
