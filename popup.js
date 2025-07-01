@@ -181,7 +181,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Save migrated data if needed
             chrome.storage.local.set({ listedData: listedData });
-        });
             
             // Add click handlers for remove buttons
             document.querySelectorAll('.remove-btn').forEach(btn => {
