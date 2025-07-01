@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Test Page - Amazon Simulation</title>
+    <style>
+        .s-result-item {
+            border: 1px solid #ddd;
+            margin: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+        .product-hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <h1>Amazon Product Search Simulation</h1>
+    <div id="search-results">
+        <div class="s-result-item" data-component-type="s-search-result">
+            <a href="/dp/B08N5WRWNW/ref=sr_1_1">Product 1 - Laptop</a>
+            <span class="s-image">Image placeholder</span>
+        </div>
+        <div class="s-result-item" data-asin="B07XJ8C8F5">
+            <a href="/dp/B07XJ8C8F5/ref=sr_1_2">Product 2 - Mouse</a>
+            <span class="s-image">Image placeholder</span>
+        </div>
+        <div class="s-result-item">
+            <a href="/gp/product/B085RNQYTP/ref=sr_1_3">Product 3 - Keyboard</a>
+            <span class="s-image">Image placeholder</span>
+        </div>
+    </div>
+
+    <script>
+        // Mock location object for testing - must be set before content script loads
+        window.location = {
+            hostname: 'www.amazon.com',
+            href: 'https://www.amazon.com/s?k=laptop'
+        };
+
+        // Mock chrome API for testing
+        window.chrome = {
+            storage: {
+                local: {
+                    get: function(keys, callback) {
+                        console.log('Mock chrome.storage.local.get called with:', keys);
+                        // Return empty data for test
+                        callback({});
+                    },
+                    set: function(data, callback) {
+                        console.log('Mock chrome.storage.local.set called with:', data);
+                        if (callback) callback();
+                    }
+                }
+            },
+            runtime: {
+                onMessage: {
+                    addListener: function(callback) {
+                        console.log('Mock chrome.runtime.onMessage.addListener registered');
+                    }
+                }
+            }
+        };
+        
+        console.log('Test setup: location.hostname =', window.location.hostname);
+    </script>
+    
+    <!-- Include the content script -->
+    <script src="content.js"></script>
+    
+    <div style="margin-top: 20px; padding: 10px; background: #e9e9e9;">
+        <h3>Test Results:</h3>
+        <div id="test-results"></div>
+    </div>
+    
+    <script>
+        // Run tests after content script loads
+        setTimeout(() => {
+            const results = [];
+            
+            // Test platform detection
+            try {
+                const platform = getCurrentPlatform();
+                results.push(`✅ Platform detection: ${platform}`);
+            } catch (e) {
+                results.push(`❌ Platform detection failed: ${e.message}`);
+            }
+            
+            // Test product element finding
+            try {
+                const productElements = findProductElements();
+                results.push(`✅ Found ${productElements.length} product elements`);
+            } catch (e) {
+                results.push(`❌ Product element finding failed: ${e.message}`);
+            }
+            
+            // Test product ID extraction
+            try {
+                const testUrl = '/dp/B08N5WRWNW/ref=sr_1_1';
+                const productId = extractProductId(testUrl);
+                results.push(`✅ Product ID extraction: ${productId}`);
+            } catch (e) {
+                results.push(`❌ Product ID extraction failed: ${e.message}`);
+            }
+            
+            // Test container finding
+            try {
+                const productElements = findProductElements();
+                if (productElements.length > 0) {
+                    const container = findProductContainer(productElements[0]);
+                    results.push(`✅ Container found: ${container ? container.className : 'no container'}`);
+                } else {
+                    results.push(`⚠️ No product elements to test container finding`);
+                }
+            } catch (e) {
+                results.push(`❌ Container finding failed: ${e.message}`);
+            }
+            
+            document.getElementById('test-results').innerHTML = results.join('<br>');
+        }, 1000);
+    </script>
+</body>
+</html>

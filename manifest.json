@@ -23,7 +23,8 @@
     "https://www.amazon.ae/*",
     "https://www.amazon.sa/*",
     "https://www.amazon.com.tr/*",
-    "https://www.amazon.co.jp/*"
+    "https://www.amazon.co.jp/*",
+    "https://www.etsy.com/*"
   ],
   "content_scripts": [
     {
@@ -44,7 +45,8 @@
         "https://www.amazon.ae/*",
         "https://www.amazon.sa/*",
         "https://www.amazon.com.tr/*",
-        "https://www.amazon.co.jp/*"
+        "https://www.amazon.co.jp/*",
+        "https://www.etsy.com/*"
       ],
       "js": ["content.js"]
     }

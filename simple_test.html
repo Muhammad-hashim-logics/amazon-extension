@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Extension Test - Amazon</title>
+    <style>
+        .s-result-item {
+            border: 1px solid #ddd;
+            margin: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Extension Test Page</h1>
+    
+    <div class="s-result-item" data-component-type="s-search-result">
+        <a href="/dp/B08N5WRWNW/ref=sr_1_1">Test Product 1</a>
+    </div>
+    
+    <div class="s-result-item" data-asin="B07XJ8C8F5">
+        <a href="/dp/B07XJ8C8F5/ref=sr_1_2">Test Product 2</a>
+    </div>
+    
+    <div id="results"></div>
+    
+    <script>
+        // Test basic functionality without content.js for now
+        function testPlatformDetection() {
+            // Mock Amazon hostname
+            const hostname = 'www.amazon.com';
+            const platform = hostname.includes('amazon') ? 'amazon' : 
+                           hostname.includes('etsy') ? 'etsy' : 'unknown';
+            return platform;
+        }
+        
+        function testASINExtraction() {
+            const url = '/dp/B08N5WRWNW/ref=sr_1_1';
+            const asinMatch = url.match(/\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})|\/product\/([A-Z0-9]{10})/i);
+            return asinMatch ? (asinMatch[1] || asinMatch[2] || asinMatch[3]) : null;
+        }
+        
+        function testProductLinks() {
+            const links = document.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"], a[href*="/product/"]');
+            return Array.from(links);
+        }
+        
+        // Run tests
+        const results = [];
+        results.push('Platform: ' + testPlatformDetection());
+        results.push('ASIN extraction: ' + testASINExtraction());
+        
+        const productLinks = testProductLinks();
+        results.push('Product links found: ' + productLinks.length);
+        
+        productLinks.forEach((link, index) => {
+            const url = link.getAttribute('href');
+            const asinMatch = url.match(/\/dp\/([A-Z0-9]{10})|\/gp\/product\/([A-Z0-9]{10})|\/product\/([A-Z0-9]{10})/i);
+            const asin = asinMatch ? (asinMatch[1] || asinMatch[2] || asinMatch[3]) : null;
+            results.push(`Link ${index + 1}: ${url} -> ASIN: ${asin}`);
+        });
+        
+        document.getElementById('results').innerHTML = results.join('<br>');
+    </script>
+</body>
+</html>
