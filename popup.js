@@ -73,7 +73,7 @@ document.addEventListener('DOMContentLoaded', function() {
         table.innerHTML = `
             <thead>
                 <tr>
-                    <th>ASIN</th>
+                    <th>Product ID</th>
                     <th>Status</th>
                     <th>My Link</th>
                     <th>Competitor Link</th>
@@ -88,23 +88,26 @@ document.addEventListener('DOMContentLoaded', function() {
         return table;
     }
 
-    function addProductRow(asin, data) {
+    function addProductRow(productId, data) {
         const tableBody = document.getElementById('tableBody');
         if (!tableBody) return;
 
         const row = document.createElement('tr');
-        row.setAttribute('data-asin', asin);
+        row.setAttribute('data-asin', productId); // Keep data-asin for compatibility
         
         const status = data.status || 'no';
         const statusDisplay = getStatusDisplay(status);
         
+        // Show platform info if available
+        const platformInfo = data.platform ? ` (${data.platform})` : '';
+        
         row.innerHTML = 
-            '<td><span class="asin-code">' + asin + '</span></td>' +
+            '<td><span class="asin-code">' + productId + platformInfo + '</span></td>' +
             '<td><span class="status-badge ' + statusDisplay.class + '">' + statusDisplay.text + '</span></td>' +
             '<td><a href="' + (data.myLink || '#') + '" target="_blank" style="font-size: 10px;">' + (data.myLink ? 'View' : 'N/A') + '</a></td>' +
             '<td><a href="' + (data.sellerLink || '#') + '" target="_blank" style="font-size: 10px;">' + (data.sellerLink ? 'View' : 'N/A') + '</a></td>' +
             '<td style="font-size: 10px; max-width: 100px; overflow: hidden; text-overflow: ellipsis;">' + (data.notes || '') + '</td>' +
-            '<td><button class="remove-btn" data-asin="' + asin + '">✕</button></td>';
+            '<td><button class="remove-btn" data-asin="' + productId + '">✕</button></td>';
         
         tableBody.appendChild(row);
     }
@@ -127,52 +130,63 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function loadListedProducts() {
-        chrome.storage.local.get(['listedData'], function(result) {
-            const listedData = result.listedData || {};
-            const productCount = Object.keys(listedData).length;
-            
-            // Update stats
-            updateProductStats(listedData);
-            
-            if (listedCountEl) listedCountEl.textContent = productCount;
-            
-            productData = {};
-            
-            if (productCount === 0) {
-                if (tableContentEl) tableContentEl.innerHTML = '<div class="empty-state">No products tracked yet</div>';
-                return;
-            }
-
-            const table = createTable();
-            if (tableContentEl) {
-                tableContentEl.innerHTML = '';
-                tableContentEl.appendChild(table);
-            }
-            
-            Object.entries(listedData).forEach(function(entry) {
-                const asin = entry[0];
-                const data = entry[1];
+        try {
+            chrome.storage.local.get(['listedData'], function(result) {
+                if (chrome.runtime.lastError) {
+                    console.error('Chrome storage error:', chrome.runtime.lastError);
+                    if (tableContentEl) tableContentEl.innerHTML = '<div class="error">Error loading data. Please refresh.</div>';
+                    return;
+                }
                 
-                productData[asin] = data;
-                addProductRow(asin, data);
-            });
-            
-            // Add click handlers for remove buttons
-            document.querySelectorAll('.remove-btn').forEach(btn => {
-                btn.addEventListener('click', function(e) {
-                    const asin = e.target.dataset.asin;
-                    if (confirm(`Remove ${asin} from tracked products?`)) {
-                        chrome.storage.local.get(['listedData'], function(result) {
-                            const listedData = result.listedData || {};
-                            delete listedData[asin];
-                            chrome.storage.local.set({ listedData: listedData }, function() {
-                                loadListedProducts();
+                const listedData = result.listedData || {};
+                const productCount = Object.keys(listedData).length;
+                
+                // Update stats
+                updateProductStats(listedData);
+                
+                if (listedCountEl) listedCountEl.textContent = productCount;
+                
+                productData = {};
+                
+                if (productCount === 0) {
+                    if (tableContentEl) tableContentEl.innerHTML = '<div class="empty-state">No products tracked yet</div>';
+                    return;
+                }
+
+                const table = createTable();
+                if (tableContentEl) {
+                    tableContentEl.innerHTML = '';
+                    tableContentEl.appendChild(table);
+                }
+                
+                Object.entries(listedData).forEach(function(entry) {
+                    const productId = entry[0]; // Can be ASIN or Etsy listing ID
+                    const data = entry[1];
+                    
+                    productData[productId] = data;
+                    addProductRow(productId, data);
+                });
+                
+                // Add click handlers for remove buttons
+                document.querySelectorAll('.remove-btn').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        const productId = e.target.dataset.asin; // Actually contains product ID regardless of name
+                        if (confirm(`Remove ${productId} from tracked products?`)) {
+                            chrome.storage.local.get(['listedData'], function(result) {
+                                const listedData = result.listedData || {};
+                                delete listedData[productId];
+                                chrome.storage.local.set({ listedData: listedData }, function() {
+                                    loadListedProducts();
+                                });
                             });
-                        });
-                    }
+                        }
+                    });
                 });
             });
-        });
+        } catch (error) {
+            console.error('Error in loadListedProducts:', error);
+            if (tableContentEl) tableContentEl.innerHTML = '<div class="error">Error loading products. Please refresh.</div>';
+        }
     }
 
     function updateProductStats(listedData) {

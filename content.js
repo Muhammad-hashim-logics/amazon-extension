@@ -468,7 +468,29 @@ function updateFilterStats() {
     if (!panel) return;
     
     const totalProducts = findProductElements().length;
-    const visibleProducts = document.querySelectorAll('[data-component-type="s-search-result"]:not(.product-hidden), [data-asin]:not(.product-hidden), .s-result-item:not(.product-hidden)').length;
+    const platform = getCurrentPlatform();
+    
+    // Updated to handle both platforms for counting visible products
+    let visibleSelectors = [];
+    if (platform === 'amazon') {
+        visibleSelectors = [
+            '[data-component-type="s-search-result"]:not(.product-hidden)',
+            '[data-asin]:not(.product-hidden)',
+            '.s-result-item:not(.product-hidden)'
+        ];
+    } else if (platform === 'etsy') {
+        visibleSelectors = [
+            '[data-listing-id]:not(.product-hidden)',
+            '.listing-card:not(.product-hidden)',
+            '.shop-listing-card:not(.product-hidden)',
+            '.v2-listing-card:not(.product-hidden)',
+            '.organic-impression:not(.product-hidden)'
+        ];
+    }
+    
+    const visibleProducts = visibleSelectors.reduce((count, selector) => {
+        return count + document.querySelectorAll(selector).length;
+    }, 0);
     
     const statusCounts = {
         listed: 0,
@@ -478,7 +500,12 @@ function updateFilterStats() {
         na: 0
     };
     
-    const allBadges = document.querySelectorAll('.amazon-listing-checker-badge[data-asin]');
+    // Count badges based on platform
+    const badgeSelector = platform === 'amazon' ? 
+        '.amazon-listing-checker-badge[data-asin]' : 
+        '.amazon-listing-checker-badge[data-listing-id]';
+    
+    const allBadges = document.querySelectorAll(badgeSelector);
     allBadges.forEach(badge => {
         const text = badge.textContent;
         if (text.includes('Listed')) statusCounts.listed++;
@@ -547,9 +574,9 @@ function exportFilteredProducts() {
         const listedData = result.listedData || {};
         const filteredData = {};
         
-        visibleProducts.forEach(asin => {
-            if (listedData[asin]) {
-                filteredData[asin] = listedData[asin];
+        visibleProducts.forEach(productId => {
+            if (listedData[productId]) {
+                filteredData[productId] = listedData[productId];
             }
         });
         
