@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Amazon Listing Checker",
+  "version": "1.4",
+  "description": "Check and manage your listed Amazon products with price comparison.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.amazon.co.uk/*",
+    "https://www.amazon.com/*",
+    "https://www.amazon.ca/*",
+    "https://www.amazon.de/*",
+    "https://www.amazon.it/*",
+    "https://www.amazon.fr/*",
+    "https://www.amazon.es/*",
+    "https://www.amazon.in/*",
+    "https://www.amazon.com.mx/*",
+    "https://www.amazon.com.br/*",
+    "https://www.amazon.com.au/*",
+    "https://www.amazon.nl/*",
+    "https://www.amazon.sg/*",
+    "https://www.amazon.ae/*",
+    "https://www.amazon.sa/*",
+    "https://www.amazon.com.tr/*",
+    "https://www.amazon.co.jp/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.amazon.co.uk/*",
+        "https://www.amazon.com/*",
+        "https://www.amazon.ca/*",
+        "https://www.amazon.de/*",
+        "https://www.amazon.it/*",
+        "https://www.amazon.fr/*",
+        "https://www.amazon.es/*",
+        "https://www.amazon.in/*",
+        "https://www.amazon.com.mx/*",
+        "https://www.amazon.com.br/*",
+        "https://www.amazon.com.au/*",
+        "https://www.amazon.nl/*",
+        "https://www.amazon.sg/*",
+        "https://www.amazon.ae/*",
+        "https://www.amazon.sa/*",
+        "https://www.amazon.com.tr/*",
+        "https://www.amazon.co.jp/*"
+      ],
+      "js": ["content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
