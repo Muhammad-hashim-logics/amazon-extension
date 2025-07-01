@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Extension Test - Etsy</title>
+    <style>
+        .listing-card {
+            border: 1px solid #ddd;
+            margin: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+        .v2-listing-card {
+            border: 1px solid #ccc;
+            margin: 10px;
+            padding: 10px;
+            background: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <h1>Extension Test Page - Etsy</h1>
+    
+    <div class="listing-card" data-listing-id="123456789">
+        <a href="/listing/123456789/handmade-jewelry">Handmade Jewelry</a>
+    </div>
+    
+    <div class="v2-listing-card">
+        <a href="/listing/987654321/vintage-vase-collection">Vintage Vase Collection</a>
+    </div>
+    
+    <div class="shop-listing-card">
+        <a href="/listing/555666777/custom-photo-frame">Custom Photo Frame</a>
+    </div>
+    
+    <div id="results"></div>
+    
+    <script>
+        // Test Etsy functionality
+        function testPlatformDetection() {
+            // Mock Etsy hostname
+            const hostname = 'www.etsy.com';
+            const platform = hostname.includes('amazon') ? 'amazon' : 
+                           hostname.includes('etsy') ? 'etsy' : 'unknown';
+            return platform;
+        }
+        
+        function testEtsyListingExtraction() {
+            const url = '/listing/123456789/handmade-jewelry';
+            const etsyMatch = url.match(/\/listing\/(\d+)/);
+            return etsyMatch ? etsyMatch[1] : null;
+        }
+        
+        function testEtsyProductLinks() {
+            const links = document.querySelectorAll('a[href*="/listing/"]');
+            return Array.from(links);
+        }
+        
+        function testEtsyContainerDetection() {
+            const containers = [];
+            const selectors = [
+                '[data-listing-id]',
+                '.listing-card',
+                '.v2-listing-card', 
+                '.shop-listing-card'
+            ];
+            
+            selectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                containers.push(`${selector}: ${elements.length} found`);
+            });
+            
+            return containers;
+        }
+        
+        // Run tests
+        const results = [];
+        results.push('Platform: ' + testPlatformDetection());
+        results.push('Listing ID extraction: ' + testEtsyListingExtraction());
+        
+        const productLinks = testEtsyProductLinks();
+        results.push('Etsy product links found: ' + productLinks.length);
+        
+        productLinks.forEach((link, index) => {
+            const url = link.getAttribute('href');
+            const etsyMatch = url.match(/\/listing\/(\d+)/);
+            const listingId = etsyMatch ? etsyMatch[1] : null;
+            results.push(`Link ${index + 1}: ${url} -> Listing ID: ${listingId}`);
+        });
+        
+        results.push(''); // Empty line
+        results.push('Container Detection:');
+        const containers = testEtsyContainerDetection();
+        results.push(...containers);
+        
+        document.getElementById('results').innerHTML = results.join('<br>');
+    </script>
+</body>
+</html>
